@@ -144,7 +144,7 @@ class HTMLFrameGenerator:
                 height = int(height_meta.get('content', 0))
                 
                 if width > 0 and height > 0:
-                    logger.debug(f"Found media size in meta tags: {width}x{height}")
+                    logger.trace(f"Found media size in meta tags: {width}x{height}")
                     return width, height
             
             return None, None
@@ -222,7 +222,7 @@ class HTMLFrameGenerator:
             }
         
         if params:
-            logger.debug(f"Parsed {len(params)} custom parameter(s) from template: {list(params.keys())}")
+            logger.trace(f"Parsed {len(params)} custom parameter(s) from template: {list(params.keys())}")
         
         return params
     

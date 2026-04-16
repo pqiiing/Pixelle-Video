@@ -100,7 +100,7 @@ class MediaService(ComfyBaseService):
                     file_path = Path(get_resource_path("workflows", source_name, filename))
                     workflow_info = self._parse_workflow_file(file_path, source_name)
                     workflows.append(workflow_info)
-                    logger.debug(f"Found workflow: {workflow_info['key']}")
+                    logger.trace(f"Found workflow: {workflow_info['key']}")
                 except Exception as e:
                     logger.error(f"Failed to parse workflow {source_name}/{filename}: {e}")
         

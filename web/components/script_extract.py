@@ -23,13 +23,20 @@ from web.i18n import tr
 from web.utils.async_helpers import run_async
 
 
-def render_script_extract() -> dict:
+def render_script_extract(key_prefix: str = "") -> dict:
     """
     Render the script extraction UI block (学习对标).
+
+    Args:
+        key_prefix: Prefix for all widget and session-state keys to avoid
+                    collisions when the component is rendered in multiple tabs.
     
     Returns:
         dict with keys: extracted_script, video_url
     """
+    sk_script = f"{key_prefix}extracted_script"
+    sk_info = f"{key_prefix}extracted_video_info"
+
     with st.container(border=True):
         st.markdown(f"**{tr('script_extract.title')}**")
         
@@ -43,7 +50,7 @@ def render_script_extract() -> dict:
             tr("script_extract.url_label"),
             placeholder=tr("script_extract.url_placeholder"),
             help=tr("script_extract.url_help"),
-            key="script_extract_url",
+            key=f"{key_prefix}script_extract_url",
         )
         
         col1, col2 = st.columns([1, 1])
@@ -51,33 +58,33 @@ def render_script_extract() -> dict:
         with col1:
             extract_btn = st.button(
                 tr("script_extract.extract_btn"),
-                use_container_width=True,
+                width="stretch",
                 type="primary",
                 disabled=not video_url.strip(),
-                key="script_extract_btn",
+                key=f"{key_prefix}script_extract_btn",
             )
         
         with col2:
             clear_btn = st.button(
                 tr("script_extract.clear_btn"),
-                use_container_width=True,
-                key="script_extract_clear_btn",
+                width="stretch",
+                key=f"{key_prefix}script_extract_clear_btn",
             )
         
         if clear_btn:
-            st.session_state.pop("extracted_script", None)
-            st.session_state.pop("extracted_video_info", None)
+            st.session_state.pop(sk_script, None)
+            st.session_state.pop(sk_info, None)
             st.rerun()
         
         if extract_btn and video_url.strip():
-            _do_extract(video_url.strip())
+            _do_extract(video_url.strip(), key_prefix=key_prefix)
         
-        extracted_script = st.session_state.get("extracted_script", "")
+        extracted_script = st.session_state.get(sk_script, "")
         
         if extracted_script:
             st.markdown(f"**{tr('script_extract.result_label')}**")
             
-            video_info = st.session_state.get("extracted_video_info", {})
+            video_info = st.session_state.get(sk_info, {})
             if video_info.get("title"):
                 duration = video_info.get("duration", 0)
                 minutes = duration // 60
@@ -91,7 +98,7 @@ def render_script_extract() -> dict:
                 tr("script_extract.script_label"),
                 value=extracted_script,
                 height=200,
-                key="script_extract_result_area",
+                key=f"{key_prefix}script_extract_result_area",
                 label_visibility="collapsed",
             )
             
@@ -108,9 +115,12 @@ def render_script_extract() -> dict:
     }
 
 
-def _do_extract(url: str):
+def _do_extract(url: str, key_prefix: str = ""):
     """Run script extraction: download → LLM analysis."""
     from pixelle_video.services.script_extractor import ScriptExtractorService
+
+    sk_script = f"{key_prefix}extracted_script"
+    sk_info = f"{key_prefix}extracted_video_info"
     
     extractor = ScriptExtractorService()
     
@@ -121,12 +131,12 @@ def _do_extract(url: str):
         status.write(tr("script_extract.step_info"))
         try:
             video_info = extractor.get_video_info(url)
-            st.session_state["extracted_video_info"] = video_info
+            st.session_state[sk_info] = video_info
             if video_info.get("title"):
                 status.write(f"📹 {video_info['title']}")
         except Exception as e:
             logger.warning(f"Could not get video info: {e}")
-            st.session_state["extracted_video_info"] = {}
+            st.session_state[sk_info] = {}
         
         # Step 2: Download video
         status.write(tr("script_extract.step_download"))
@@ -138,7 +148,7 @@ def _do_extract(url: str):
         status.write(tr("script_extract.step_llm"))
         script = run_async(extractor.extract_script(url=url))
         
-        st.session_state["extracted_script"] = script
+        st.session_state[sk_script] = script
         status.update(label=tr("script_extract.success"), state="complete")
         st.rerun()
         
