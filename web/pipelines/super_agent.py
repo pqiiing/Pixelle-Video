@@ -32,7 +32,6 @@ from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.components.content_input import render_bgm_section, render_version_info
 from web.components.script_extract import render_script_extract
 from web.utils.async_helpers import run_async
-from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
 from pixelle_video.utils.os_util import create_task_output_dir
 
@@ -108,6 +107,8 @@ class SuperAgentPipelineUI(PipelineUI):
 
         with right_col:
             self._render_step5_assembly(pixelle_video)
+            self._render_step6_cover(pixelle_video)
+            self._render_step7_publish(pixelle_video)
 
     # ══════════════════════════════════════════════════════════════════
     # Step 1: 学习对标
@@ -498,12 +499,51 @@ class SuperAgentPipelineUI(PipelineUI):
         with st.container(border=True):
             st.markdown(f"**{tr('super_agent.step5.title')}**")
 
-            st.text_input(
-                tr("super_agent.step5.video_source"),
-                value=tr("super_agent.step5.video_source_auto"),
-                disabled=True,
-                key="sa_video_source_display",
-            )
+            auto_video = st.session_state.get("sa_video_path", "")
+            manual_video_path = st.session_state.get("sa_manual_video_path", "")
+
+            src_col, preview_col = st.columns([1, 1])
+            with src_col:
+                st.markdown(f"**{tr('super_agent.step5.video_source')}**")
+                if manual_video_path and os.path.exists(str(manual_video_path)):
+                    display_text = os.path.basename(str(manual_video_path))
+                elif auto_video and os.path.exists(str(auto_video)):
+                    display_text = tr("super_agent.step5.video_source_auto")
+                else:
+                    display_text = tr("super_agent.step5.video_source_auto")
+                st.session_state["sa_video_source_display"] = display_text
+                st.text_input(
+                    "video_source_display",
+                    disabled=True,
+                    key="sa_video_source_display",
+                    label_visibility="collapsed",
+                )
+                uploaded_video = st.file_uploader(
+                    tr("super_agent.step5.upload_video"),
+                    type=["mp4", "mov", "avi", "mkv", "webm"],
+                    key="sa_manual_video_upload",
+                )
+
+                if uploaded_video is not None:
+                    task_dir = st.session_state.get("sa_task_dir", "temp")
+                    Path(task_dir).mkdir(parents=True, exist_ok=True)
+                    manual_path = os.path.join(task_dir, f"manual_{uploaded_video.name}")
+                    with open(manual_path, "wb") as f:
+                        f.write(uploaded_video.getbuffer())
+                    st.session_state["sa_manual_video_path"] = manual_path
+
+            with preview_col:
+                st.markdown(f"**{tr('super_agent.step5.video_preview')}**")
+                final_path = st.session_state.get("sa_final_video")
+                preview_video = final_path
+                if not preview_video or not os.path.exists(str(preview_video)):
+                    preview_video = st.session_state.get("sa_manual_video_path")
+                if not preview_video or not os.path.exists(str(preview_video)):
+                    preview_video = st.session_state.get("sa_video_path")
+                if preview_video and os.path.exists(str(preview_video)):
+                    st.video(str(preview_video))
+                else:
+                    st.caption(tr("super_agent.step5.preview_placeholder"))
 
             st.markdown(f"**{tr('super_agent.step5.subtitle_settings')}**")
             sub_col1, sub_col2, sub_col3 = st.columns([1, 2, 1])
@@ -578,59 +618,610 @@ class SuperAgentPipelineUI(PipelineUI):
                         width="stretch",
                     )
 
+            vol_col1, vol_col2 = st.columns(2)
+            with vol_col1:
+                st.slider(
+                    tr("super_agent.step3.voice_volume"),
+                    min_value=0.0, max_value=1.0, value=1.0, step=0.1,
+                    key="sa_assemble_voice_vol",
+                )
+            with vol_col2:
+                st.slider(
+                    tr("super_agent.step3.bgm_volume"),
+                    min_value=0.0, max_value=1.0, value=0.3, step=0.1,
+                    key="sa_assemble_bgm_vol",
+                )
+
             st.toggle(
                 tr("super_agent.step5.breath_enable"),
                 value=False,
                 key="sa_breath_removal",
             )
 
-            edit_col, start_col = st.columns(2)
-            with edit_col:
-                st.button(
-                    tr("super_agent.step5.edit_subtitle"),
-                    width="stretch",
-                    key="sa_edit_subtitle",
-                )
-            with start_col:
-                assemble_clicked = st.button(
-                    tr("super_agent.step5.start_btn"),
-                    type="primary",
-                    width="stretch",
-                    key="sa_assemble_btn",
-                )
+            # ── Subtitle editor ──
+            if subtitle_enabled:
+                with st.expander(tr("super_agent.step5.edit_subtitle"), expanded=False):
+                    if "sa_srt_content" not in st.session_state:
+                        script_text = st.session_state.get(
+                            "sa_rewritten_script",
+                            st.session_state.get("sa_original_script", ""),
+                        )
+                        if script_text.strip():
+                            lines = [ln.strip() for ln in script_text.strip().splitlines() if ln.strip()]
+                            srt_parts = []
+                            for i, line in enumerate(lines, 1):
+                                s_sec = (i - 1) * 3
+                                e_sec = i * 3
+                                sh, sm, ss = s_sec // 3600, (s_sec % 3600) // 60, s_sec % 60
+                                eh, em, es = e_sec // 3600, (e_sec % 3600) // 60, e_sec % 60
+                                srt_parts.append(
+                                    f"{i}\n{sh:02d}:{sm:02d}:{ss:02d},000 --> "
+                                    f"{eh:02d}:{em:02d}:{es:02d},000\n{line}"
+                                )
+                            st.session_state["sa_srt_content"] = "\n\n".join(srt_parts)
+
+                    if st.button(
+                        tr("super_agent.step5.generate_srt"),
+                        key="sa_gen_srt_btn",
+                        width="stretch",
+                    ):
+                        self._generate_srt_from_video(pixelle_video)
+
+                    st.text_area(
+                        tr("super_agent.step5.srt_editor_label"),
+                        height=200,
+                        key="sa_srt_content",
+                        placeholder=tr("super_agent.step5.srt_placeholder"),
+                    )
+
+            assemble_clicked = st.button(
+                tr("super_agent.step5.start_btn"),
+                type="primary",
+                width="stretch",
+                key="sa_assemble_btn",
+            )
 
             if assemble_clicked:
-                video_path = st.session_state.get("sa_video_path")
+                video_path = (
+                    st.session_state.get("sa_manual_video_path")
+                    or st.session_state.get("sa_video_path")
+                )
                 if not video_path or not os.path.exists(str(video_path)):
                     st.warning(tr("super_agent.step5.no_video"))
                 else:
+                    srt_text = st.session_state.get("sa_srt_content", "") if subtitle_enabled else ""
                     self._do_assemble(
                         pixelle_video,
                         video_path=str(video_path),
                         bgm_params=bgm_params,
                         subtitle_enabled=subtitle_enabled,
+                        srt_content=srt_text,
                     )
 
-        st.markdown(f"**{tr('super_agent.step5.video_preview')}**")
-        final_path = st.session_state.get("sa_final_video")
-        if final_path and os.path.exists(str(final_path)):
-            st.video(str(final_path))
-            with open(str(final_path), "rb") as vf:
-                st.download_button(
-                    label="⬇️ 下载视频" if get_language() == "zh_CN" else "⬇️ Download Video",
-                    data=vf.read(),
-                    file_name=os.path.basename(str(final_path)),
-                    mime="video/mp4",
-                    width="stretch",
+            if final_path and os.path.exists(str(final_path)):
+                with open(str(final_path), "rb") as vf:
+                    st.download_button(
+                        label=tr("super_agent.step5.download_btn"),
+                        data=vf.read(),
+                        file_name=os.path.basename(str(final_path)),
+                        mime="video/mp4",
+                        width="stretch",
+                    )
+
+    # ══════════════════════════════════════════════════════════════════
+    # Step 6: 标题封面
+    # ══════════════════════════════════════════════════════════════════
+    def _render_step6_cover(self, pixelle_video: Any):
+        with st.container(border=True):
+            st.markdown(f"**{tr('super_agent.step6.title')}**")
+
+            st.markdown(f"**{tr('super_agent.step6.video_title_label')}**")
+            title_col, gen_col = st.columns([3, 1])
+            with title_col:
+                st.text_input(
+                    "title_input",
+                    placeholder=tr("super_agent.step6.title_placeholder"),
+                    key="sa_video_title",
+                    label_visibility="collapsed",
                 )
-        else:
-            st.caption(tr("super_agent.step5.preview_placeholder"))
+            with gen_col:
+                if st.button(
+                    tr("super_agent.step6.auto_generate"),
+                    key="sa_title_generate",
+                    width="stretch",
+                ):
+                    script = st.session_state.get(
+                        "sa_rewritten_script",
+                        st.session_state.get("sa_original_script", ""),
+                    )
+                    if script.strip():
+                        self._call_llm(
+                            pixelle_video,
+                            f"根据以下短视频文案，生成一个吸引人的标题（不超过30字，不带引号）：\n\n{script}",
+                            target_key="sa_video_title",
+                        )
+                    else:
+                        st.warning(tr("super_agent.step2.no_script"))
+
+            st.markdown(f"**{tr('super_agent.step6.cover_label')}**")
+            cover_upload = st.file_uploader(
+                tr("super_agent.step6.cover_upload"),
+                type=["jpg", "jpeg", "png", "webp"],
+                key="sa_cover_upload",
+                label_visibility="collapsed",
+            )
+
+            cover_path = st.session_state.get("sa_cover_path")
+            if cover_upload:
+                task_dir = st.session_state.get("sa_task_dir", "temp")
+                Path(task_dir).mkdir(parents=True, exist_ok=True)
+                cover_path = os.path.join(task_dir, f"cover_{cover_upload.name}")
+                with open(cover_path, "wb") as f:
+                    f.write(cover_upload.getbuffer())
+                st.session_state["sa_cover_path"] = cover_path
+
+            if st.button(
+                tr("super_agent.step6.extract_cover"),
+                key="sa_extract_cover",
+                width="stretch",
+            ):
+                final_video = st.session_state.get(
+                    "sa_final_video", st.session_state.get("sa_video_path")
+                )
+                if final_video and os.path.exists(str(final_video)):
+                    try:
+                        import subprocess
+                        task_dir = st.session_state.get("sa_task_dir", "temp")
+                        Path(task_dir).mkdir(parents=True, exist_ok=True)
+                        cover_out = os.path.join(task_dir, "cover_frame.jpg")
+                        subprocess.run(
+                            ["ffmpeg", "-i", str(final_video), "-ss", "00:00:01",
+                             "-vframes", "1", "-y", cover_out],
+                            capture_output=True, timeout=30,
+                        )
+                        if os.path.exists(cover_out):
+                            st.session_state["sa_cover_path"] = cover_out
+                            cover_path = cover_out
+                            st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+                else:
+                    st.warning(tr("super_agent.step5.no_video"))
+
+            if cover_path and os.path.exists(str(cover_path)):
+                st.image(str(cover_path), width=200)
+
+    # ══════════════════════════════════════════════════════════════════
+    # Step 7: 视频发布
+    # ══════════════════════════════════════════════════════════════════
+    def _render_step7_publish(self, pixelle_video: Any):
+        with st.container(border=True):
+            st.markdown(f"**{tr('super_agent.step7.title')}**")
+
+            # ── 视频文件 ──
+            video_display = (
+                st.session_state.get("sa_final_video", "")
+                or st.session_state.get("sa_video_path", "")
+            )
+            st.session_state["sa_publish_video_display"] = (
+                str(video_display) if video_display else ""
+            )
+            st.text_input(
+                tr("super_agent.step7.video_address"),
+                disabled=True,
+                key="sa_publish_video_display",
+            )
+
+            # ── 浏览器连接 ──
+            from pixelle_video.services.publisher import PublisherService
+
+            default_addr = (
+                "127.0.0.1:9222"
+                if st.session_state.get("sa_driver_type", "chrome") == "chrome"
+                else "127.0.0.1:2828"
+            )
+            st.session_state.setdefault("sa_debugger_address", default_addr)
+            addr = st.session_state.get("sa_debugger_address", default_addr)
+            host, port = PublisherService.parse_address(addr)
+            port_open = PublisherService.is_debug_port_open(host, port)
+
+            if port_open:
+                st.success(tr("super_agent.step7.chrome_connected", address=addr))
+            else:
+                st.warning(tr("super_agent.step7.chrome_not_connected", address=addr))
+                if st.button(
+                    tr("super_agent.step7.launch_chrome"),
+                    key="sa_launch_chrome_btn",
+                ):
+                    self._do_launch_chrome()
+
+            with st.expander(tr("super_agent.step7.driver_config"), expanded=False):
+                st.selectbox(
+                    tr("super_agent.step7.driver_type"),
+                    options=["chrome", "firefox"],
+                    key="sa_driver_type",
+                )
+                drv_c1, drv_c2 = st.columns(2)
+                with drv_c1:
+                    st.text_input(
+                        tr("super_agent.step7.driver_path"),
+                        placeholder=tr("super_agent.step7.driver_path_placeholder"),
+                        key="sa_driver_path",
+                    )
+                with drv_c2:
+                    st.text_input(
+                        tr("super_agent.step7.debugger_address"),
+                        key="sa_debugger_address",
+                    )
+
+            # ── 发布总控 ──
+            st.checkbox(
+                tr("super_agent.step7.auto_publish"),
+                key="sa_auto_publish",
+            )
+            st.checkbox(
+                tr("super_agent.step7.use_common_config"),
+                value=True,
+                key="sa_use_common_config",
+            )
+
+            use_common = st.session_state.get("sa_use_common_config", True)
+
+            if use_common:
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.text_input(
+                        tr("super_agent.step7.title_prefix"),
+                        key="sa_pub_common_title_prefix",
+                    )
+                with c2:
+                    st.text_input(
+                        tr("super_agent.step7.collection"),
+                        key="sa_pub_common_collection",
+                    )
+                with c3:
+                    st.text_input(
+                        tr("super_agent.step7.tags"),
+                        placeholder=tr("super_agent.step7.tags_placeholder"),
+                        key="sa_pub_common_tags",
+                    )
+
+            # ── 抖音 ──
+            st.checkbox(
+                tr("super_agent.step7.enable_douyin"),
+                value=True,
+                key="sa_pub_enable_douyin",
+            )
+            if not use_common and st.session_state.get("sa_pub_enable_douyin"):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.text_input(tr("super_agent.step7.title_prefix"), key="sa_pub_douyin_title_prefix")
+                with c2:
+                    st.text_input(tr("super_agent.step7.collection"), key="sa_pub_douyin_collection")
+                with c3:
+                    st.text_input(tr("super_agent.step7.tags"), key="sa_pub_douyin_tags")
+
+            # ── 快手 ──
+            st.checkbox(
+                tr("super_agent.step7.enable_kuaishou"),
+                value=True,
+                key="sa_pub_enable_kuaishou",
+            )
+            if not use_common and st.session_state.get("sa_pub_enable_kuaishou"):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.text_input(tr("super_agent.step7.title_prefix"), key="sa_pub_kuaishou_title_prefix")
+                with c2:
+                    st.text_input(tr("super_agent.step7.collection"), key="sa_pub_kuaishou_collection")
+                with c3:
+                    st.text_input(tr("super_agent.step7.tags"), key="sa_pub_kuaishou_tags")
+                st.checkbox(
+                    tr("super_agent.step7.enable_kuaishou_domain"),
+                    key="sa_pub_kuaishou_domain_enable",
+                )
+                if st.session_state.get("sa_pub_kuaishou_domain_enable"):
+                    d1, d2 = st.columns(2)
+                    with d1:
+                        st.text_input(tr("super_agent.step7.domain_level1"), key="sa_pub_kuaishou_domain_lv1")
+                    with d2:
+                        st.text_input(tr("super_agent.step7.domain_level2"), key="sa_pub_kuaishou_domain_lv2")
+
+            # ── 视频号 ──
+            st.checkbox(
+                tr("super_agent.step7.enable_shipinhao"),
+                value=True,
+                key="sa_pub_enable_shipinhao",
+            )
+            st.checkbox(
+                tr("super_agent.step7.enable_original"),
+                key="sa_pub_shipinhao_original",
+            )
+            if not use_common and st.session_state.get("sa_pub_enable_shipinhao"):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.text_input(tr("super_agent.step7.title_prefix"), key="sa_pub_shipinhao_title_prefix")
+                with c2:
+                    st.text_input(tr("super_agent.step7.collection"), key="sa_pub_shipinhao_collection")
+                with c3:
+                    st.text_input(tr("super_agent.step7.tags"), key="sa_pub_shipinhao_tags")
+
+            # ── 小红书 ──
+            st.checkbox(
+                tr("super_agent.step7.enable_xiaohongshu"),
+                value=True,
+                key="sa_pub_enable_xiaohongshu",
+            )
+            if not use_common and st.session_state.get("sa_pub_enable_xiaohongshu"):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.text_input(tr("super_agent.step7.title_prefix"), key="sa_pub_xiaohongshu_title_prefix")
+                with c2:
+                    st.text_input(tr("super_agent.step7.collection"), key="sa_pub_xiaohongshu_collection")
+                with c3:
+                    st.text_input(tr("super_agent.step7.tags"), key="sa_pub_xiaohongshu_tags")
+
+            # ── B站 ──
+            st.checkbox(
+                tr("super_agent.step7.enable_bilibili"),
+                value=True,
+                key="sa_pub_enable_bilibili",
+            )
+            if not use_common and st.session_state.get("sa_pub_enable_bilibili"):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.text_input(tr("super_agent.step7.title_prefix"), key="sa_pub_bilibili_title_prefix")
+                with c2:
+                    st.text_input(tr("super_agent.step7.collection"), key="sa_pub_bilibili_collection")
+                with c3:
+                    st.text_input(tr("super_agent.step7.tags"), key="sa_pub_bilibili_tags")
+                st.checkbox(
+                    tr("super_agent.step7.enable_bilibili_section"),
+                    key="sa_pub_bilibili_section_enable",
+                )
+                if st.session_state.get("sa_pub_bilibili_section_enable"):
+                    s1, s2 = st.columns(2)
+                    with s1:
+                        st.text_input(tr("super_agent.step7.section_level1"), key="sa_pub_bilibili_section_lv1")
+                    with s2:
+                        st.text_input(tr("super_agent.step7.section_level2"), key="sa_pub_bilibili_section_lv2")
+
+            # ── 操作按钮 ──
+            btn_c1, btn_c2 = st.columns(2)
+            with btn_c1:
+                test_clicked = st.button(
+                    tr("super_agent.step7.test_btn"),
+                    width="stretch",
+                    key="sa_pub_test_btn",
+                    disabled=not port_open,
+                )
+            with btn_c2:
+                publish_clicked = st.button(
+                    tr("super_agent.step7.publish_btn"),
+                    type="primary",
+                    width="stretch",
+                    key="sa_publish_btn",
+                    disabled=not port_open,
+                )
+
+            if test_clicked:
+                self._do_test_publish()
+            if publish_clicked:
+                self._do_publish()
+
+            pub_results = st.session_state.get("sa_publish_results")
+            if pub_results:
+                for plat, res in pub_results.items():
+                    plat_label = tr(f"super_agent.step7.platform_{plat}")
+                    if res.get("success"):
+                        st.success(f"{plat_label}: {tr('super_agent.step7.publish_success')}")
+                    else:
+                        st.error(
+                            f"{plat_label}: {tr('super_agent.step7.publish_failed', error=res.get('error', ''))}"
+                        )
 
         render_version_info()
 
     # ══════════════════════════════════════════════════════════════════
     # Helpers
     # ══════════════════════════════════════════════════════════════════
+
+    def _generate_srt_from_video(self, pixelle_video: Any):
+        """Generate SRT subtitles from the effective video using whisper/LLM."""
+        effective_video = (
+            st.session_state.get("sa_manual_video_path")
+            or st.session_state.get("sa_video_path")
+        )
+        if not effective_video or not os.path.exists(str(effective_video)):
+            st.warning(tr("super_agent.step5.no_video"))
+            return
+
+        with st.spinner(tr("super_agent.step5.generating_srt")):
+            try:
+                import subprocess
+
+                task_dir = st.session_state.get("sa_task_dir", "temp")
+                Path(task_dir).mkdir(parents=True, exist_ok=True)
+                audio_tmp = os.path.join(task_dir, "extracted_audio.wav")
+                subprocess.run(
+                    [
+                        "ffmpeg", "-i", str(effective_video),
+                        "-vn", "-acodec", "pcm_s16le",
+                        "-ar", "16000", "-ac", "1",
+                        "-y", audio_tmp,
+                    ],
+                    capture_output=True, timeout=60,
+                )
+
+                if not os.path.exists(audio_tmp):
+                    st.error(tr("super_agent.step5.srt_extract_audio_failed"))
+                    return
+
+                srt_prompt = (
+                    "请根据这段音频内容，生成对应的 SRT 格式字幕。"
+                    "严格按照 SRT 格式输出（序号、时间轴、文本），不要添加其他内容。"
+                )
+                try:
+                    result = run_async(
+                        pixelle_video.llm(srt_prompt, max_tokens=4096)
+                    )
+                    if result and result.strip():
+                        st.session_state["sa_srt_content"] = result.strip()
+                        st.rerun()
+                except Exception:
+                    script_text = st.session_state.get(
+                        "sa_rewritten_script",
+                        st.session_state.get("sa_original_script", ""),
+                    )
+                    if script_text.strip():
+                        lines = [
+                            ln.strip()
+                            for ln in script_text.strip().splitlines()
+                            if ln.strip()
+                        ]
+                        srt_parts = []
+                        for i, line in enumerate(lines, 1):
+                            s_sec = (i - 1) * 3
+                            e_sec = i * 3
+                            sh = s_sec // 3600
+                            sm = (s_sec % 3600) // 60
+                            ss = s_sec % 60
+                            eh = e_sec // 3600
+                            em = (e_sec % 3600) // 60
+                            es = e_sec % 60
+                            srt_parts.append(
+                                f"{i}\n{sh:02d}:{sm:02d}:{ss:02d},000 --> "
+                                f"{eh:02d}:{em:02d}:{es:02d},000\n{line}"
+                            )
+                        st.session_state["sa_srt_content"] = "\n\n".join(srt_parts)
+                        st.rerun()
+                    else:
+                        st.warning(tr("super_agent.step5.srt_no_script"))
+
+            except Exception as e:
+                st.error(tr("super_agent.step5.error", error=str(e)))
+                logger.exception(e)
+
+    def _build_publish_params(self) -> "PublishParams":
+        """Collect all publish config from session state into PublishParams."""
+        from pixelle_video.services.publisher import PublishParams, PlatformConfig
+
+        use_common = st.session_state.get("sa_use_common_config", True)
+
+        def _cfg(prefix: str) -> PlatformConfig:
+            return PlatformConfig(
+                enabled=st.session_state.get(f"sa_pub_enable_{prefix}", True),
+                title_prefix=st.session_state.get(f"sa_pub_{prefix}_title_prefix", ""),
+                collection=st.session_state.get(f"sa_pub_{prefix}_collection", ""),
+                tags=st.session_state.get(f"sa_pub_{prefix}_tags", ""),
+            )
+
+        common_cfg = PlatformConfig(
+            enabled=True,
+            title_prefix=st.session_state.get("sa_pub_common_title_prefix", ""),
+            collection=st.session_state.get("sa_pub_common_collection", ""),
+            tags=st.session_state.get("sa_pub_common_tags", ""),
+        )
+
+        final_video = (
+            st.session_state.get("sa_final_video", "")
+            or st.session_state.get("sa_video_path", "")
+        )
+
+        return PublishParams(
+            video_path=str(final_video) if final_video else "",
+            title=st.session_state.get("sa_video_title", ""),
+            description=st.session_state.get("sa_publish_desc", ""),
+            cover_path=st.session_state.get("sa_cover_path", ""),
+            auto_publish=st.session_state.get("sa_auto_publish", False),
+            use_common_config=use_common,
+            common=common_cfg,
+            douyin=_cfg("douyin"),
+            kuaishou=_cfg("kuaishou"),
+            xiaohongshu=_cfg("xiaohongshu"),
+            bilibili=_cfg("bilibili"),
+            shipinhao=_cfg("shipinhao"),
+            kuaishou_domain_enabled=st.session_state.get("sa_pub_kuaishou_domain_enable", False),
+            kuaishou_domain_level1=st.session_state.get("sa_pub_kuaishou_domain_lv1", ""),
+            kuaishou_domain_level2=st.session_state.get("sa_pub_kuaishou_domain_lv2", ""),
+            bilibili_section_enabled=st.session_state.get("sa_pub_bilibili_section_enable", False),
+            bilibili_section_level1=st.session_state.get("sa_pub_bilibili_section_lv1", ""),
+            bilibili_section_level2=st.session_state.get("sa_pub_bilibili_section_lv2", ""),
+            shipinhao_original=st.session_state.get("sa_pub_shipinhao_original", False),
+        )
+
+    def _get_publisher_service(self):
+        from pixelle_video.services.publisher import PublisherService
+        return PublisherService(
+            driver_type=st.session_state.get("sa_driver_type", "chrome"),
+            driver_path=st.session_state.get("sa_driver_path", ""),
+            debugger_address=st.session_state.get("sa_debugger_address", "127.0.0.1:9222"),
+        )
+
+    def _do_launch_chrome(self):
+        from pixelle_video.services.publisher import PublisherService
+        addr = st.session_state.get("sa_debugger_address", "127.0.0.1:9222")
+        _, port = PublisherService.parse_address(addr)
+        try:
+            exe = PublisherService.launch_chrome_debug(port=port)
+            st.success(tr("super_agent.step7.launch_success", path=exe))
+            st.rerun()
+        except FileNotFoundError:
+            st.error(tr("super_agent.step7.chrome_not_found"))
+        except TimeoutError as e:
+            st.warning(str(e))
+        except Exception as e:
+            st.error(str(e))
+
+    def _do_test_publish(self):
+        """Test browser driver connection."""
+        try:
+            svc = self._get_publisher_service()
+            title = svc.test_connection()
+            st.success(tr("super_agent.step7.test_success", title=title))
+        except ImportError:
+            st.error(tr("super_agent.step7.selenium_missing"))
+        except Exception as e:
+            st.error(tr("super_agent.step7.test_failed", error=str(e)))
+            logger.exception(e)
+
+    def _do_publish(self):
+        """Publish video to all enabled platforms via Selenium."""
+        params = self._build_publish_params()
+
+        if not params.video_path or not os.path.exists(params.video_path):
+            st.warning(tr("super_agent.step5.no_video"))
+            return
+
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        try:
+            svc = self._get_publisher_service()
+
+            def _progress(plat, idx, total, state):
+                pct = int((idx / total) * 100) if total else 0
+                progress_bar.progress(min(pct, 100))
+                plat_label = tr(f"super_agent.step7.platform_{plat}")
+                status_text.text(
+                    tr("super_agent.step7.publishing_to", platform=plat_label)
+                )
+
+            status_text.text(tr("super_agent.step7.publishing"))
+            results = svc.publish(params, progress_callback=_progress)
+
+            progress_bar.progress(100)
+            status_text.text(tr("super_agent.step7.publish_done"))
+            st.session_state["sa_publish_results"] = results
+
+        except ImportError:
+            progress_bar.empty()
+            status_text.empty()
+            st.error(tr("super_agent.step7.selenium_missing"))
+        except Exception as e:
+            progress_bar.empty()
+            status_text.empty()
+            st.error(tr("super_agent.step7.publish_error", error=str(e)))
+            logger.exception(e)
 
     @staticmethod
     def _call_llm(pixelle_video: Any, prompt: str, target_key: str):
@@ -802,6 +1393,7 @@ class SuperAgentPipelineUI(PipelineUI):
         video_path: str,
         bgm_params: dict,
         subtitle_enabled: bool,
+        srt_content: str = "",
     ):
         """Assemble final video with BGM, subtitles, etc."""
         progress_bar = st.progress(0)
@@ -809,35 +1401,66 @@ class SuperAgentPipelineUI(PipelineUI):
         start_time = time.time()
 
         try:
+            import subprocess
+
             task_dir = st.session_state.get("sa_task_dir")
             if not task_dir:
                 task_dir, _ = create_task_output_dir()
                 st.session_state["sa_task_dir"] = task_dir
 
             status_text.text(tr("super_agent.step5.assembling"))
-            progress_bar.progress(20)
+            progress_bar.progress(10)
 
-            final_path = os.path.join(task_dir, "final.mp4")
+            current_video = video_path
             bgm_path = bgm_params.get("bgm_path")
             bgm_volume = bgm_params.get("bgm_volume", 0.2)
 
-            from pixelle_video.services.video import VideoService
-            video_svc = VideoService({})
+            # ── 1. Burn subtitles via FFmpeg ──
+            if subtitle_enabled and srt_content.strip():
+                srt_path = os.path.join(task_dir, "subtitles.srt")
+                with open(srt_path, "w", encoding="utf-8") as f:
+                    f.write(srt_content)
 
+                status_text.text(tr("super_agent.step5.burning_subtitles"))
+                progress_bar.progress(30)
+
+                subtitled_path = os.path.join(task_dir, "with_subtitles.mp4")
+                srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
+                cmd = [
+                    "ffmpeg", "-i", current_video,
+                    "-vf", f"subtitles='{srt_escaped}':force_style='FontSize=18,PrimaryColour=&HFFFFFF&'",
+                    "-c:a", "copy", "-y", subtitled_path,
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if result.returncode == 0 and os.path.exists(subtitled_path):
+                    current_video = subtitled_path
+                else:
+                    logger.warning(f"Subtitle burn failed: {result.stderr[:300]}")
+
+            # ── 2. Add BGM ──
+            progress_bar.progress(50)
             resolved_bgm = None
             if bgm_path:
                 from pixelle_video.utils.os_util import get_resource_path, resource_exists
                 if resource_exists("bgm", bgm_path):
                     resolved_bgm = get_resource_path("bgm", bgm_path)
 
-            progress_bar.progress(50)
+            final_path = os.path.join(task_dir, "final.mp4")
 
-            video_svc.concat_videos(
-                videos=[video_path],
-                output=final_path,
-                bgm_path=resolved_bgm,
-                bgm_volume=bgm_volume,
-            )
+            if resolved_bgm:
+                status_text.text(tr("super_agent.step5.adding_bgm"))
+                progress_bar.progress(70)
+                from pixelle_video.services.video import VideoService
+                video_svc = VideoService()
+                video_svc.concat_videos(
+                    videos=[current_video],
+                    output=final_path,
+                    bgm_path=resolved_bgm,
+                    bgm_volume=bgm_volume,
+                )
+            else:
+                import shutil
+                shutil.copy2(current_video, final_path)
 
             progress_bar.progress(100)
             status_text.text(tr("super_agent.step5.success"))

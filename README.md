@@ -224,6 +224,11 @@ sudo apt install ffmpeg
 - 下载地址：https://ffmpeg.org/download.html
 - 下载后解压，将 `bin` 目录添加到系统环境变量 PATH 中
 
+或者直接用命令下载
+```bash
+winget install ffmpeg
+```
+
 安装完成后，在终端中运行 `ffmpeg -version` 验证安装成功。
 
 
@@ -232,6 +237,7 @@ sudo apt install ffmpeg
 ```bash
 git clone https://github.com/AIDC-AI/Pixelle-Video.git
 cd Pixelle-Video
+uv pip install selenium pyperclip
 ```
 
 #### 第二步：启动 Web 界面
