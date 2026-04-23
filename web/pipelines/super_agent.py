@@ -124,19 +124,27 @@ def _build_srt_from_lines(lines: list[str], audio_path: str = "") -> str:
 _REWRITE_TEMPLATES = {
     "default": (
         "请将以下文案进行改写润色，保持原意但让表达更流畅自然、更有感染力，"
-        "适合短视频口播。字数控制在{word_limit}字左右。\n\n原文案：\n{script}"
+        "适合短视频口播。【重要】改写后的文案总字数严格控制在{word_limit}字以内，"
+        "不得超出，超出部分必须精简删减。只输出改写后的文案，不要输出任何额外说明。"
+        "\n\n原文案：\n{script}"
     ),
     "hook": (
         "请将以下文案改写为爆款短视频风格，开头必须用一个强有力的钩子吸引观众停留，"
-        "语言口语化、节奏感强。字数控制在{word_limit}字左右。\n\n原文案：\n{script}"
+        "语言口语化、节奏感强。【重要】改写后的文案总字数严格控制在{word_limit}字以内，"
+        "不得超出，超出部分必须精简删减。只输出改写后的文案，不要输出任何额外说明。"
+        "\n\n原文案：\n{script}"
     ),
     "story": (
         "请将以下文案改写为故事型风格，用讲故事的方式娓娓道来，"
-        "引起观众共鸣。字数控制在{word_limit}字左右。\n\n原文案：\n{script}"
+        "引起观众共鸣。【重要】改写后的文案总字数严格控制在{word_limit}字以内，"
+        "不得超出，超出部分必须精简删减。只输出改写后的文案，不要输出任何额外说明。"
+        "\n\n原文案：\n{script}"
     ),
     "list": (
         "请将以下文案改写为清单型风格，条理清晰、重点突出，"
-        "用数字列表呈现核心要点。字数控制在{word_limit}字左右。\n\n原文案：\n{script}"
+        "用数字列表呈现核心要点。【重要】改写后的文案总字数严格控制在{word_limit}字以内，"
+        "不得超出，超出部分必须精简删减。只输出改写后的文案，不要输出任何额外说明。"
+        "\n\n原文案：\n{script}"
     ),
 }
 
@@ -159,6 +167,13 @@ _MARKETING_PROMPT = (
     "产品信息：\n{product_info}"
 )
 
+_CHAR_IMAGE_MAP = {
+    "young_male": "characters/young_male.png",
+    "young_female": "characters/young_female.png",
+    "middle_male": "characters/middle_male.png",
+    "middle_female": "characters/middle_female.jpeg",
+}
+
 
 class SuperAgentPipelineUI(PipelineUI):
     """
@@ -178,6 +193,7 @@ class SuperAgentPipelineUI(PipelineUI):
         return tr("pipeline.super_agent.description")
 
     def render(self, pixelle_video: Any):
+        self._inject_file_uploader_i18n()
         left_col, middle_col, right_col = st.columns([1, 1, 1])
 
         with left_col:
@@ -207,7 +223,7 @@ class SuperAgentPipelineUI(PipelineUI):
             ])
 
             with tab_extract:
-                script_params = render_script_extract(key_prefix="sa_")
+                script_params = render_script_extract(key_prefix="sa_", show_result=False)
                 if script_params.get("extracted_script"):
                     st.session_state["sa_original_script"] = script_params["extracted_script"]
 
@@ -254,13 +270,27 @@ class SuperAgentPipelineUI(PipelineUI):
                     )
 
             st.markdown(f"**{tr('super_agent.step1.original_script')}**")
+            video_info = st.session_state.get("sa_extracted_video_info", {})
+            if video_info.get("title"):
+                duration = video_info.get("duration", 0)
+                minutes = duration // 60
+                seconds = duration % 60
+                info_text = f"📹 {video_info['title']}"
+                if duration:
+                    info_text += f"  |  ⏱️ {int(minutes)}:{int(seconds):02d}"
+                st.caption(info_text)
+            if "_pending_sa_original_script" in st.session_state:
+                st.session_state["sa_original_script"] = st.session_state.pop("_pending_sa_original_script")
             st.text_area(
                 "script_display",
-                placeholder=tr("script_extract.url_placeholder"),
+                placeholder=tr("super_agent.step1.original_script_placeholder"),
                 height=150,
                 key="sa_original_script",
                 label_visibility="collapsed",
             )
+            _orig_text = st.session_state.get("sa_original_script", "")
+            if _orig_text:
+                st.caption(tr("script_extract.char_count", count=len(_orig_text)))
 
     # ══════════════════════════════════════════════════════════════════
     # Step 2: 改写文案
@@ -347,6 +377,9 @@ class SuperAgentPipelineUI(PipelineUI):
                 key="sa_rewritten_script",
                 label_visibility="collapsed",
             )
+            _rewrite_text = st.session_state.get("sa_rewritten_script", "")
+            if _rewrite_text:
+                st.caption(tr("script_extract.char_count", count=len(_rewrite_text)))
 
             legal_result = st.session_state.get("sa_legal_result")
             if legal_result:
@@ -490,33 +523,65 @@ class SuperAgentPipelineUI(PipelineUI):
     # ══════════════════════════════════════════════════════════════════
     # Step 4: 视频生成
     # ══════════════════════════════════════════════════════════════════
+    @staticmethod
+    def _scan_characters() -> list[tuple[str, str, str]]:
+        """Scan characters/ directory, return list of (key, display_name, abs_path)."""
+        from pixelle_video.utils.os_util import get_root_path
+        char_dir = get_root_path("characters")
+        entries: list[tuple[str, str, str]] = []
+        if not os.path.isdir(char_dir):
+            return entries
+        img_exts = {".png", ".jpg", ".jpeg", ".webp"}
+        for fname in sorted(os.listdir(char_dir)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in img_exts:
+                continue
+            key = os.path.splitext(fname)[0]
+            fpath = os.path.join(char_dir, fname)
+            i18n_key = f"super_agent.step4.character_{key}"
+            name = tr(i18n_key)
+            if name == i18n_key:
+                name = key.replace("_", " ").title()
+            entries.append((key, name, fpath))
+        return entries
+
     def _render_step4_video(self, pixelle_video: Any):
         with st.container(border=True):
             st.markdown(f"**{tr('super_agent.step4.title')}**")
 
-            char_col, upload_col = st.columns([3, 1])
-            with char_col:
-                character_options = {
-                    "young_male": tr("super_agent.step4.character_young_male"),
-                    "young_female": tr("super_agent.step4.character_young_female"),
-                    "middle_male": tr("super_agent.step4.character_middle_male"),
-                    "middle_female": tr("super_agent.step4.character_middle_female"),
-                    "custom": tr("super_agent.step4.character_custom"),
-                }
-                character_key = st.selectbox(
-                    tr("super_agent.step4.character_label"),
-                    options=list(character_options.keys()),
-                    format_func=lambda x: character_options[x],
-                    key="sa_character_select",
-                )
-            with upload_col:
-                st.markdown("<br>", unsafe_allow_html=True)
-                uploaded_char = st.file_uploader(
-                    tr("super_agent.step4.upload_character"),
-                    type=["jpg", "jpeg", "png", "webp"],
-                    key="sa_char_upload",
-                    label_visibility="collapsed",
-                )
+            char_entries = self._scan_characters()
+            selected_key = st.session_state.get("sa_character_select", "")
+            if char_entries and selected_key not in {e[0] for e in char_entries}:
+                selected_key = char_entries[0][0]
+                st.session_state["sa_character_select"] = selected_key
+                st.session_state["sa_character_path"] = char_entries[0][2]
+
+            cols_per_row = 4
+            with st.container(height=280):
+                for row_start in range(0, len(char_entries), cols_per_row):
+                    row_items = char_entries[row_start:row_start + cols_per_row]
+                    cols = st.columns(cols_per_row)
+                    for col_idx, (key, name, fpath) in enumerate(row_items):
+                        with cols[col_idx]:
+                            st.image(fpath, width="stretch")
+                            is_selected = (selected_key == key)
+                            if st.button(
+                                name,
+                                key=f"sa_char_btn_{key}",
+                                type="primary" if is_selected else "secondary",
+                                width="stretch",
+                            ):
+                                st.session_state["sa_character_select"] = key
+                                st.session_state["sa_character_path"] = fpath
+                                st.rerun()
+
+            character_key = selected_key
+
+            uploaded_char = st.file_uploader(
+                tr("super_agent.step4.upload_character"),
+                type=["jpg", "jpeg", "png", "webp"],
+                key="sa_char_upload",
+            )
 
             custom_char_path = None
             if uploaded_char:
@@ -548,7 +613,7 @@ class SuperAgentPipelineUI(PipelineUI):
                     tr("super_agent.step4.model_version"),
                     options=list(model_options.keys()),
                     format_func=lambda x: model_options[x],
-                    index=1,
+                    index=0,
                     key="sa_model_version",
                 )
 
@@ -567,7 +632,7 @@ class SuperAgentPipelineUI(PipelineUI):
                         audio_path=str(audio_path),
                         character_key=character_key,
                         custom_char_path=custom_char_path,
-                        model_version=st.session_state.get("sa_model_version", "v2"),
+                        model_version=st.session_state.get("sa_model_version", "v1"),
                     )
 
             st.markdown(f"**{tr('super_agent.step4.video_result')}**")
@@ -1105,6 +1170,42 @@ class SuperAgentPipelineUI(PipelineUI):
     # Helpers
     # ══════════════════════════════════════════════════════════════════
 
+    @staticmethod
+    def _inject_file_uploader_i18n():
+        """Replace default English file uploader drag-drop text with localized text."""
+        lang = get_language()
+        if lang != "zh_CN":
+            return
+        drag_text = tr("file_upload.drag_drop")
+        browse_text = tr("file_upload.browse")
+        st.markdown(f"""
+        <style>
+        [data-testid="stFileUploaderDropzoneInstructions"] > div > span,
+        [data-testid="stFileUploaderDropzoneInstructions"] > div > small {{
+            display: none !important;
+        }}
+        [data-testid="stFileUploaderDropzoneInstructions"] > div::before {{
+            content: "{drag_text}";
+            display: block;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }}
+        [data-testid="stFileUploaderDropzone"] button[kind="secondary"] {{
+            color: transparent !important;
+            position: relative;
+        }}
+        [data-testid="stFileUploaderDropzone"] button[kind="secondary"]::after {{
+            content: "{browse_text}";
+            color: inherit;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: rgb(49, 51, 63);
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+
     def _generate_srt_from_video(self, pixelle_video: Any):
         """Generate SRT subtitles from the effective video using whisper/LLM."""
         effective_video = (
@@ -1321,7 +1422,7 @@ class SuperAgentPipelineUI(PipelineUI):
         audio_path: str,
         character_key: str,
         custom_char_path: str | None,
-        model_version: str = "v2",
+        model_version: str = "v1",
     ):
         """Generate digital human video using ComfyKit workflows."""
         progress_bar = st.progress(0)
@@ -1337,14 +1438,10 @@ class SuperAgentPipelineUI(PipelineUI):
 
             character_image = custom_char_path
             if not character_image:
+                character_image = st.session_state.get("sa_character_path")
+            if not character_image or not os.path.exists(str(character_image)):
                 from pixelle_video.utils.os_util import get_resource_path, resource_exists
-                char_map = {
-                    "young_male": "characters/young_male.png",
-                    "young_female": "characters/young_female.png",
-                    "middle_male": "characters/middle_male.png",
-                    "middle_female": "characters/middle_female.png",
-                }
-                char_file = char_map.get(character_key, "characters/young_male.png")
+                char_file = _CHAR_IMAGE_MAP.get(character_key, "characters/young_male.png")
                 if resource_exists("", char_file):
                     character_image = get_resource_path("", char_file)
                 else:
@@ -1352,9 +1449,9 @@ class SuperAgentPipelineUI(PipelineUI):
 
             wf_map = {
                 "v1": "workflows/runninghub/digital_combination.json",
-                "v2": "workflows/runninghub/digital_customize.json",
+                "v2": "workflows/runninghub/LTX2.3.json",
             }
-            workflow_path = Path(wf_map.get(model_version, wf_map["v2"]))
+            workflow_path = Path(wf_map.get(model_version, wf_map["v1"]))
             if not workflow_path.exists():
                 raise FileNotFoundError(
                     f"Digital human workflow not found: {workflow_path}"
@@ -1377,27 +1474,32 @@ class SuperAgentPipelineUI(PipelineUI):
             status_text.text(tr("super_agent.step4.generating"))
             progress_bar.progress(20)
 
-            async def _generate(_wf_input, _wf_params, _task_dir):
+            async def _generate(_wf_input, _wf_params, _task_dir, _wf_config):
                 """Pure async computation — no Streamlit calls inside (runs in background thread)."""
-                kit = await pixelle_video._get_or_create_comfykit()
-
-                max_attempts = 5
-                retry_wait = 30
-                result = None
-                for attempt in range(1, max_attempts + 1):
-                    result = await kit.execute(_wf_input, _wf_params)
-                    status = getattr(result, "status", "")
-                    msg = getattr(result, "msg", "") or ""
-                    if status == "completed":
+                if _wf_config.get("source") == "runninghub":
+                    node_mappings = _wf_config.get("node_mappings")
+                    result = await _execute_runninghub(
+                        _wf_config["workflow_id"], _wf_params, node_mappings,
+                    )
+                else:
+                    kit = await pixelle_video._get_or_create_comfykit()
+                    max_attempts = 5
+                    retry_wait = 30
+                    result = None
+                    for attempt in range(1, max_attempts + 1):
+                        result = await kit.execute(_wf_input, _wf_params)
+                        status = getattr(result, "status", "")
+                        msg = getattr(result, "msg", "") or ""
+                        if status == "completed":
+                            break
+                        if "TASK_QUEUE_MAXED" in msg and attempt < max_attempts:
+                            logger.warning(
+                                f"RunningHub queue full (attempt {attempt}/{max_attempts}), "
+                                f"retrying in {retry_wait}s..."
+                            )
+                            await asyncio.sleep(retry_wait)
+                            continue
                         break
-                    if "TASK_QUEUE_MAXED" in msg and attempt < max_attempts:
-                        logger.warning(
-                            f"RunningHub queue full (attempt {attempt}/{max_attempts}), "
-                            f"retrying in {retry_wait}s..."
-                        )
-                        await asyncio.sleep(retry_wait)
-                        continue
-                    break
 
                 logger.info(
                     f"Workflow result: status={getattr(result, 'status', 'N/A')}, "
@@ -1475,7 +1577,112 @@ class SuperAgentPipelineUI(PipelineUI):
 
                 return final_path
 
-            video_path = run_async(_generate(wf_input, wf_params, task_dir))
+            async def _execute_runninghub(workflow_id, params, node_mappings=None):
+                """Execute RunningHub workflow. Auto-discovers input nodes when no explicit mappings provided."""
+                from comfykit.comfyui.runninghub_client import RunningHubClient
+                from types import SimpleNamespace
+
+                rh_config = config_manager.get_comfyui_config()
+                api_key = rh_config.get("runninghub_api_key")
+                if not api_key:
+                    raise RuntimeError("RunningHub API key not configured")
+
+                if not node_mappings:
+                    node_mappings = await _discover_input_nodes(api_key, workflow_id)
+
+                rh_client = RunningHubClient(api_key=api_key)
+                try:
+                    node_info_list = []
+                    for param_name, mapping in node_mappings.items():
+                        value = params.get(param_name, "")
+                        if not value:
+                            continue
+                        if mapping.get("upload") and os.path.exists(str(value)):
+                            logger.info(f"Uploading {param_name}: {value}")
+                            value = await rh_client.upload_file(str(value))
+                            logger.info(f"Uploaded {param_name} → {value}")
+                        node_info_list.append({
+                            "nodeId": str(mapping["nodeId"]),
+                            "fieldName": mapping["fieldName"],
+                            "fieldValue": str(value),
+                        })
+
+                    logger.info(f"Creating RunningHub task: workflow={workflow_id}, nodeInfoList={node_info_list}")
+                    task_data = await rh_client.create_task(workflow_id, node_info_list or None)
+                    task_id = task_data.get("taskId")
+                    if not task_id:
+                        raise RuntimeError(f"Failed to create RunningHub task: {task_data}")
+
+                    logger.info(f"RunningHub task created: {task_id}, polling for completion...")
+                    max_attempts = 5
+                    retry_wait = 30
+                    while True:
+                        status_info = await rh_client.query_task_status(task_id)
+                        task_status = status_info["status"]
+                        if task_status == "SUCCESS":
+                            result_data = await rh_client.query_task_result(task_id)
+                            result = SimpleNamespace(
+                                status="completed", msg="", videos=[], images=[],
+                                videos_by_var={}, images_by_var={},
+                                audios=[], audios_by_var={},
+                                texts=[], outputs={"raw_data": result_data},
+                                duration=0,
+                            )
+                            for item in result_data:
+                                url = item.get("fileUrl", "")
+                                ft = (item.get("fileType") or "").lower()
+                                if not url:
+                                    continue
+                                if ft in ("mp4", "avi", "mov", "mkv", "webm") or "video" in ft:
+                                    result.videos.append(url)
+                                elif ft in ("png", "jpg", "jpeg", "gif", "webp") or "image" in ft:
+                                    result.images.append(url)
+                            return result
+                        elif task_status == "FAILED":
+                            raise RuntimeError(
+                                f"RunningHub task {task_id} failed: {status_info.get('msg', '')}"
+                            )
+                        logger.info(f"Task {task_id}: {task_status}, waiting...")
+                        await asyncio.sleep(5)
+                finally:
+                    await rh_client.close()
+
+            async def _discover_input_nodes(api_key, workflow_id):
+                """Call RunningHub API to get workflow definition, then auto-detect input nodes."""
+                _INPUT_NODE_TYPES = {
+                    "LoadImage":          ("videoimage", "image"),
+                    "VHS_LoadAudioUpload": ("audio",     "audio"),
+                    "VHS_LoadAudio":       ("audio",     "audio"),
+                }
+                timeout = httpx.Timeout(30.0)
+                async with httpx.AsyncClient(timeout=timeout) as http:
+                    resp = await http.post(
+                        "https://www.runninghub.cn/api/openapi/getJsonApiFormat",
+                        json={"apiKey": api_key, "workflowId": workflow_id},
+                    )
+                    resp.raise_for_status()
+                    api_data = resp.json()
+
+                if api_data.get("code") != 0:
+                    raise RuntimeError(
+                        f"Failed to get workflow definition: {api_data.get('msg')}"
+                    )
+
+                prompt = json.loads(api_data["data"]["prompt"])
+                mappings = {}
+                for nid, node in prompt.items():
+                    ct = node.get("class_type", "")
+                    if ct in _INPUT_NODE_TYPES:
+                        param_name, field_name = _INPUT_NODE_TYPES[ct]
+                        mappings[param_name] = {
+                            "nodeId": nid, "fieldName": field_name, "upload": True,
+                        }
+                logger.info(
+                    f"Auto-discovered node mappings for workflow {workflow_id}: {mappings}"
+                )
+                return mappings
+
+            video_path = run_async(_generate(wf_input, wf_params, task_dir, wf_config))
             progress_bar.progress(100)
             status_text.text(tr("super_agent.step4.success"))
             st.session_state["sa_video_path"] = video_path

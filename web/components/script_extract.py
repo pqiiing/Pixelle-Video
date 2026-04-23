@@ -23,7 +23,7 @@ from web.i18n import tr
 from web.utils.async_helpers import run_async
 
 
-def render_script_extract(key_prefix: str = "") -> dict:
+def render_script_extract(key_prefix: str = "", show_result: bool = True) -> dict:
     """
     Render the script extraction UI block (学习对标).
 
@@ -60,7 +60,6 @@ def render_script_extract(key_prefix: str = "") -> dict:
                 tr("script_extract.extract_btn"),
                 width="stretch",
                 type="primary",
-                disabled=not video_url.strip(),
                 key=f"{key_prefix}script_extract_btn",
             )
         
@@ -76,14 +75,17 @@ def render_script_extract(key_prefix: str = "") -> dict:
             st.session_state.pop(sk_info, None)
             st.rerun()
         
-        if extract_btn and video_url.strip():
-            _do_extract(video_url.strip(), key_prefix=key_prefix)
-        
+        if extract_btn:
+            if video_url.strip():
+                _do_extract(video_url.strip(), key_prefix=key_prefix)
+            else:
+                st.warning(tr("script_extract.empty_url_warning"))
+
         extracted_script = st.session_state.get(sk_script, "")
-        
-        if extracted_script:
+
+        if extracted_script and show_result:
             st.markdown(f"**{tr('script_extract.result_label')}**")
-            
+
             video_info = st.session_state.get(sk_info, {})
             if video_info.get("title"):
                 duration = video_info.get("duration", 0)
@@ -93,7 +95,7 @@ def render_script_extract(key_prefix: str = "") -> dict:
                 if duration:
                     info_text += f"  |  ⏱️ {int(minutes)}:{int(seconds):02d}"
                 st.caption(info_text)
-            
+
             edited_script = st.text_area(
                 tr("script_extract.script_label"),
                 value=extracted_script,
@@ -101,14 +103,19 @@ def render_script_extract(key_prefix: str = "") -> dict:
                 key=f"{key_prefix}script_extract_result_area",
                 label_visibility="collapsed",
             )
-            
+
             st.caption(tr("script_extract.char_count", count=len(edited_script)))
-            
+
             return {
                 "extracted_script": edited_script,
                 "video_url": video_url,
             }
-    
+        elif extracted_script:
+            return {
+                "extracted_script": extracted_script,
+                "video_url": video_url,
+            }
+
     return {
         "extracted_script": "",
         "video_url": video_url if video_url else "",
