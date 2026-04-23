@@ -30,7 +30,7 @@ import streamlit as st
 
 # Setup page config (must be first Streamlit command)
 st.set_page_config(
-    page_title="Pixelle-Video - AI Video Generator",
+    page_title="AI Video Engine",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="collapsed",

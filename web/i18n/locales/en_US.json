@@ -1,8 +1,8 @@
 {
   "language_name": "English",
   "t": {
-    "app.title": "⚡ Pixelle-Video - AI Auto Short Video Engine",
-    "app.subtitle": "Powered by Pixelle.AI",
+    "app.title": "⚡ AI Video Engine",
+    "app.subtitle": "",
     "section.content_input": "📝 Video Script",
     "section.bgm": "🎵 Background Music",
     "section.tts": "🎤 Voiceover",
@@ -103,7 +103,7 @@
     "template.preview_param_width": "Width",
     "template.preview_param_height": "Height",
     "template.preview_default_title": "AI Changes Content Creation",
-    "template.preview_default_text": "Artificial intelligence is transforming the way Pixelle.AI creates content, making it easy for everyone to produce professional-grade videos.",
+    "template.preview_default_text": "Artificial intelligence is transforming the way we create content, making it easy for everyone to produce professional-grade videos.",
     "template.preview_button": "🖼️ Generate Preview",
     "template.preview_generating": "Generating template preview...",
     "template.preview_success": "✅ Preview generated successfully!",
@@ -265,7 +265,7 @@
     "tts.previewing": "Generating TTS preview...",
     "tts.preview_success": "✅ Preview generated successfully!",
     "tts.preview_failed": "❌ Preview failed: {error}",
-    "welcome.first_time": "🎉 Welcome to Pixelle-Video! Please complete basic configuration",
+    "welcome.first_time": "🎉 Welcome to AI Video Engine! Please complete basic configuration",
     "welcome.config_hint": "💡 First-time setup requires API Key configuration, you can modify it in advanced settings later",
     "wizard.llm_required": "🤖 Large Language Model Configuration (Required)",
     "wizard.image_optional": "🎨 Image Generation Configuration (Optional)",

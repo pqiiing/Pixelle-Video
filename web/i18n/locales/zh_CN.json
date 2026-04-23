@@ -1,8 +1,8 @@
 {
   "language_name": "简体中文",
   "t": {
-    "app.title": "⚡ Pixelle-Video - AI 全自动短视频引擎",
-    "app.subtitle": "Pixelle.AI 提供支持",
+    "app.title": "⚡ AI视频引擎",
+    "app.subtitle": "",
     "section.content_input": "📝 视频脚本",
     "section.bgm": "🎵 背景音乐",
     "section.tts": "🎤 配音合成",
@@ -103,7 +103,7 @@
     "template.preview_param_width": "宽度",
     "template.preview_param_height": "高度",
     "template.preview_default_title": "AI 改变内容创作",
-    "template.preview_default_text": "Pixelle.AI 正在用人工智能改变内容创作的方式，让每个人都能轻松制作专业级视频。",
+    "template.preview_default_text": "AI正在改变内容创作的方式，让每个人都能轻松制作专业级视频。",
     "template.preview_button": "🖼️ 生成预览",
     "template.preview_generating": "正在生成模板预览...",
     "template.preview_success": "✅ 预览生成成功！",
@@ -265,7 +265,7 @@
     "tts.previewing": "正在生成 TTS 预览...",
     "tts.preview_success": "✅ 预览生成成功！",
     "tts.preview_failed": "❌ 预览失败：{error}",
-    "welcome.first_time": "🎉 欢迎使用 Pixelle-Video！请先完成基础配置",
+    "welcome.first_time": "🎉 欢迎使用 AI视频引擎！请先完成基础配置",
     "welcome.config_hint": "💡 首次使用需要配置 API Key，后续可以在高级设置中修改",
     "wizard.llm_required": "🤖 大语言模型配置（必需）",
     "wizard.image_optional": "🎨 图像生成配置（可选）",

@@ -76,7 +76,7 @@ def tr(key: str, fallback: Optional[str] = None, **kwargs) -> str:
         Translated text
     
     Example:
-        tr("app.title")  # => "Pixelle-Video"
+        tr("app.title")  # => "AI Video Engine"
         tr("error.missing_field", field="API Key")  # => "请填写 API Key"
     """
     locale = _locales.get(_current_language, {})

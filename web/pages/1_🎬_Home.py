@@ -35,7 +35,7 @@ from web.components.faq import render_faq_sidebar
 
 # Page config
 st.set_page_config(
-    page_title="Home - Pixelle-Video",
+    page_title="Home - AI Video Engine",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="collapsed",
