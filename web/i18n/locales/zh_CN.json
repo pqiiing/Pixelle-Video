@@ -516,6 +516,7 @@
     "script_extract.step_llm": "LLM 分析视频提取文案中...",
     "script_extract.success": "✅ 文案提取完成",
     "script_extract.error": "❌ 提取失败 {error}",
+    "script_extract.empty_url_warning": "⚠️ 视频链接为空，请在下方原文案中直接填写文案",
 
     "selfhost.warning.title": "您选择了 SelfHost（本地）工作流，请务必先确认以下事项：",
     "selfhost.warning.message": "1. 请先在您的 ComfyUI 环境（{comfyui_url}）中**单独加载并运行** `{workflow_path}` 工作流\n2. 确保该工作流**能够正常运行完成**，没有节点缺失或模型缺失等错误\n3. 工作流调试通过后，再回到本项目使用",
@@ -535,6 +536,7 @@
     "super_agent.step1.marketing_help": "输入产品名称、卖点、目标受众等信息，AI 自动生成营销文案",
     "super_agent.step1.generate_btn": "✨ AI 生成",
     "super_agent.step1.original_script": "原文案",
+    "super_agent.step1.original_script_placeholder": "在此输入或粘贴文案内容...\n可通过上方「提取文案」从视频链接自动提取，也可直接手动输入",
 
     "super_agent.step2.title": "2. 改写文案",
     "super_agent.step2.template_label": "写作提示词模板",
@@ -694,6 +696,9 @@
     "super_agent.step7.publish_success": "✅ 发布成功",
     "super_agent.step7.publish_failed": "❌ 发布失败：{error}",
     "super_agent.step7.publish_error": "❌ 发布出错：{error}",
-    "super_agent.step7.selenium_missing": "❌ 缺少 selenium/pyperclip 依赖，请运行：pip install selenium pyperclip"
+    "super_agent.step7.selenium_missing": "❌ 缺少 selenium/pyperclip 依赖，请运行：pip install selenium pyperclip",
+
+    "file_upload.drag_drop": "将文件拖拽到此处",
+    "file_upload.browse": "浏览文件"
   }
 }

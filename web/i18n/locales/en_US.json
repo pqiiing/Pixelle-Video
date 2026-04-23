@@ -516,6 +516,7 @@
     "script_extract.step_llm": "LLM analyzing video to extract script...",
     "script_extract.success": "✅ Script extraction complete",
     "script_extract.error": "❌ Extraction failed {error}",
+    "script_extract.empty_url_warning": "⚠️ Video URL is empty, please enter your script in the text area below",
 
     "selfhost.warning.title": "You have selected a SelfHost (local) workflow. Please confirm the following:",
     "selfhost.warning.message": "1. First, **load and run** `{workflow_path}` workflow in your ComfyUI environment ({comfyui_url})\n2. Ensure the workflow **runs successfully** without missing nodes or models\n3. After the workflow is verified, return to this project to use it",
@@ -535,6 +536,7 @@
     "super_agent.step1.marketing_help": "Enter product name, selling points, target audience, etc. AI auto-generates marketing copy",
     "super_agent.step1.generate_btn": "✨ AI Generate",
     "super_agent.step1.original_script": "Original Script",
+    "super_agent.step1.original_script_placeholder": "Enter or paste script content here...\nUse 'Extract Script' above to auto-extract from video URL, or type manually",
 
     "super_agent.step2.title": "2. Rewrite Script",
     "super_agent.step2.template_label": "Writing Prompt Template",
@@ -694,6 +696,9 @@
     "super_agent.step7.publish_success": "✅ Published successfully",
     "super_agent.step7.publish_failed": "❌ Publish failed: {error}",
     "super_agent.step7.publish_error": "❌ Publish error: {error}",
-    "super_agent.step7.selenium_missing": "❌ Missing selenium/pyperclip. Run: pip install selenium pyperclip"
+    "super_agent.step7.selenium_missing": "❌ Missing selenium/pyperclip. Run: pip install selenium pyperclip",
+
+    "file_upload.drag_drop": "Drag and drop file here",
+    "file_upload.browse": "Browse files"
   }
 }
